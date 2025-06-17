@@ -32,6 +32,42 @@ private:
     double filteredValue;
 };
 
+class AsymetricExponentialFilter {
+public:
+    AsymetricExponentialFilter(double alphaUp, double alphaDown) 
+        : alphaUp(alphaUp), alphaDown(alphaDown), initialized(false), filteredValue(0.0) {}
+
+    double filter(double value) {
+        if (!initialized) {
+            filteredValue = value;
+            initialized = true;
+        } else {
+            double alpha = (value > filteredValue) ? alphaUp : alphaDown;
+            filteredValue = alpha * value + (1 - alpha) * filteredValue;
+        }
+        return filteredValue;
+    }
+
+    void reset() {
+        initialized = false;
+        filteredValue = 0.0;
+    }
+
+    bool isInitialized() const {
+        return initialized;
+    }
+
+    double getFilteredValue() const {
+        return filteredValue;
+    }
+
+private:
+    double alphaUp;
+    double alphaDown;
+    bool initialized;
+    double filteredValue;
+};
+
 class NumericalDerivativeFilter {
 public:
     NumericalDerivativeFilter(double dt = 1.) : dt(dt), previousValue(0.0), initialized(false) {}
