@@ -134,6 +134,7 @@ const int chanRepeat = 1;
 
 RGBChaser rgbChaser(18);  // Create an RGB chaser with 18 fixtures
 
+
 void loop() {
     static int messageCount = 0;
     MessageData data;
@@ -150,7 +151,7 @@ void loop() {
 	//wait for the measurement to finish. proceed as soon as hasValue() returned true. 
 	do
 	{
-		delay(100);
+		delay(10);
 	} while (!bmp180.hasValue());
 
     float pressure = bmp180.getPressure();
@@ -161,24 +162,67 @@ void loop() {
     static NumericalDerivativeFilter pressureDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a derivative filter with dt = 1 second
     double pressureDerivative = pressureDerivativeFilter.filter(pressure);
 
-    static SimpleExponentialFilter derivativeFilter = SimpleExponentialFilter(0.1);  // Create a filter for the derivative with alpha = 0.1
-    double filteredDerivative = derivativeFilter.filter(pressureDerivative);
+    static SimpleHighPassFilter pressureDerivativeHighPassFilter = SimpleHighPassFilter(0.025);  // Create a high-pass filter for the derivative with alpha = 0.1
+    double highPassPressureDerivative = pressureDerivativeHighPassFilter.filter(pressureDerivative);
 
     static NumericalDerivativeFilter secondDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a second derivative filter with dt = 1 second
-    double secondDerivative = secondDerivativeFilter.filter(filteredDerivative);
+    double secondDerivative = secondDerivativeFilter.filter(pressureDerivative);
+
+    static NumericalDerivativeFilter thirdDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a third derivative filter with dt = 1 second
+    double thirdDerivative = thirdDerivativeFilter.filter(secondDerivative);
+
+    static SimpleExponentialFilter highPassFilter = SimpleExponentialFilter(0.2);  // Create a high-pass filter with
+    double highPassPressure = highPassFilter.filter(abs(highPassPressureDerivative));
+
+    static SimpleExponentialFilter derivativeFilter = SimpleExponentialFilter(0.1);  // Create a filter for the derivative with alpha = 0.1
+    double filteredDerivative = derivativeFilter.filter(pressureDerivative);
 
     Serial.println("> FilteredPressure: " + String(filteredPressure));
     Serial.println("> PressureDerivative: " + String(pressureDerivative));
     Serial.println("> FilteredDerivative: " + String(filteredDerivative));
     Serial.println("> SecondDerivative: " + String(secondDerivative));
+    Serial.println("> ThirdDerivative: " + String(thirdDerivative));
+    Serial.println("> HighPassPressureDerivative: " + String(highPassPressureDerivative));
+    Serial.println("> HighPassPressure: " + String(highPassPressure));
     Serial.println("> Pressure: " + String(pressure));
+
+
+    static SimpleExponentialFilter accXFilter = SimpleExponentialFilter(0.1);
+    static SimpleExponentialFilter accYFilter = SimpleExponentialFilter(0.1);
+    static SimpleExponentialFilter accZFilter = SimpleExponentialFilter(0.1);
+
+    accXFilter.filter(event.acceleration.x);
+    accYFilter.filter(event.acceleration.y);
+    accZFilter.filter(event.acceleration.z);
+
+    // Calculate actigraphy from accelerometer derivatives
+    static NumericalDerivativeFilter accXDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a derivative filter for X acceleration with dt = 1 second
+    static NumericalDerivativeFilter accYDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a derivative filter for Y acceleration with dt = 1 second
+    static NumericalDerivativeFilter accZDerivativeFilter = NumericalDerivativeFilter(1.0);  // Create a derivative filter for Z acceleration with dt = 1 second
+    double accXDerivative = accXDerivativeFilter.filter(event.acceleration.x);
+    double accYDerivative = accYDerivativeFilter.filter(event.acceleration.y);
+    double accZDerivative = accZDerivativeFilter.filter(event.acceleration.z);
+    // sum absolute values
+    double actigraphy = abs(accXDerivative) + abs(accYDerivative) + abs(accZDerivative);
+
+    static SimpleExponentialFilter actigraphyFilter = SimpleExponentialFilter(0.1);  // Create a filter for actigraphy with alpha = 0.1
+    actigraphy = actigraphyFilter.filter(actigraphy);
+
+
+    Serial.println("> accX: " + String(accXFilter.getFilteredValue()));
+    Serial.println("> accY: " + String(accYFilter.getFilteredValue()));
+    Serial.println("> accZ: " + String(accZFilter.getFilteredValue()));
+    Serial.println("> actigraphy: " + String(actigraphy));
 
     float totalAcceleration = sqrt(event.acceleration.x * event.acceleration.x +
                               event.acceleration.y * event.acceleration.y +
                               event.acceleration.z * event.acceleration.z);
 
-    float pitch = atan2(event.acceleration.y, event.acceleration.z) * 180.0 / PI;  // Convert to degrees
-    float roll = atan2(event.acceleration.x, event.acceleration.z) * 180.0 / PI;   // Convert to degrees
+    // float pitch = atan2(event.acceleration.y, event.acceleration.z) * 180.0 / PI;  // Convert to degrees
+    // float roll = atan2(event.acceleration.x, event.acceleration.z) * 180.0 / PI;   // Convert to degrees
+    float pitch = event.acceleration.pitch;
+    float roll = event.acceleration.roll;
+    // float heading = event.acceleration.heading;
     roll = fmod(roll - 90.0, 360.0) - 180.;  // Ensure roll is in the range [0, 360)
     // pitch = fmod(pitch + 90.0, 360.0) - 180.;  // Ensure pitch is in the range [0, 360)
 
@@ -205,9 +249,11 @@ void loop() {
 
     auto oscValues = oscillators.nextSample();  // Update oscillators for the next sample
 
-    rgbChaser.setFrequency(dmxValue / 127. + 0.2);
+    rgbChaser.setFrequency(accYFilter.getFilteredValue() / 30.);
     rgbChaser.setSineWidth(abs(roll / 180.0) * 0.5);
-    rgbChaser.setSinePeriod(abs(pitch / 180.0) * 1. + 1.);
+    rgbChaser.setColorMix(1. - 3./highPassPressure);
+    rgbChaser.setAmplitudeModulation(thirdDerivative / 250. + 0.7);  // Set amplitude modulation based on third derivative of pressure
+    // rgbChaser.setSinePeriod(abs(pitch / 180.0) * 10. + 0.);
 
     rgbChaser.chase();  // Update the RGB chaser for the next frame
     auto rgbValues = rgbChaser.getDMXValues();  // Get the next RGB values from the chaser

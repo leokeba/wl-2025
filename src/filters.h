@@ -309,8 +309,9 @@ class RGBChaser {
 public:
     RGBChaser(size_t numFixtures, 
               const std::vector<double>& color1 = { 1.0, 0., 0.0 }, // Default to yellow
-              const std::vector<double>& color2 = { 0.0, 0.4, 1.0 }) // Default to blue
-        : color1(color1), color2(color2), numFixtures(numFixtures) {
+              const std::vector<double>& color2 = { 0.0, 0.4, 1.0 }, // Default to blue
+              const std::vector<double>& color3 = { 0.0, 1.0, 0.0 })
+        : color1(color1), color2(color2), color3(color3), numFixtures(numFixtures), colorMix(0.0), amplitudeModulation(1.0) {
         fixtures.reserve(numFixtures);
         for (size_t i = 0; i < numFixtures; ++i) {
             fixtures.emplace_back(0, 0, 0); // Initialize with black
@@ -359,6 +360,12 @@ public:
             phase -= 2.0 * PI; // Wrap phase to avoid overflow
         }
 
+        // Mix color2 and color3 based on colorMix parameter
+        std::vector<double> mixedColor2(3);
+        for (size_t c = 0; c < 3; ++c) {
+            mixedColor2[c] = color2[c] * (1.0 - colorMix) + color3[c] * colorMix;
+        }
+
         for (size_t i = 0; i < numFixtures; ++i) {
             // Calculate position along the fixture chain [0, 1]
             double position = (double)i / numFixtures;
@@ -389,11 +396,11 @@ public:
             double normalizedSine = (fixtureSine + 1.0) / 2.0;
             // Apply sine shape factor
             double factor = normalizedSine * sineShape;
-            // Interpolate between color1 and color2 based on the factor
+            // Interpolate between color1 and mixedColor2 based on the factor
             factor = constrain(factor, 0.0, 1.0);
-            uint8_t red = constrain((color1[0] * (1 - factor) + color2[0] * factor) * 255, 0, 255);
-            uint8_t green = constrain((color1[1] * (1 - factor) + color2[1] * factor) * 255, 0, 255);
-            uint8_t blue = constrain((color1[2] * (1 - factor) + color2[2] * factor) * 255, 0, 255);
+            uint8_t red = constrain((color1[0] * (1 - factor) + mixedColor2[0] * factor) * 255 * amplitudeModulation, 0, 255);
+            uint8_t green = constrain((color1[1] * (1 - factor) + mixedColor2[1] * factor) * 255 * amplitudeModulation, 0, 255);
+            uint8_t blue = constrain((color1[2] * (1 - factor) + mixedColor2[2] * factor) * 255 * amplitudeModulation, 0, 255);
             fixtures[i].setRGB(red, green, blue);
         }
     }
@@ -412,6 +419,13 @@ public:
     void setSinePeriod(double newSinePeriod) {
         sinePeriod = newSinePeriod;
     }
+    void setColorMix(double newColorMix) {
+        colorMix = constrain(newColorMix, 0.0, 1.0);
+    }
+    void setAmplitudeModulation(double newAmplitudeModulation) {
+        amplitudeModulation = constrain(newAmplitudeModulation, 0.0, 1.0);
+    }
+
 private:
     size_t numFixtures;
     double phase = 0.0; // Current phase for chaser effect
@@ -419,10 +433,55 @@ private:
     double amplitude = 1.0; // Amplitude of the chaser effect
     double sineShape = 1.0; // Sine shape factor for the chaser effect
     double sineWidth = 1.0; // Sine width factor for the chaser effect
-    double sinePeriod = 2.0 * PI; // Full sine wave period
+    double sinePeriod = 1.0 * PI; // Full sine wave period
+    double colorMix = 0.0; // Mix ratio between color2 and color3 [0.0 = color2, 1.0 = color3]
+    double amplitudeModulation = 1.0; // Overall amplitude modulation [0.0 = off, 1.0 = full brightness]
     std::vector<double> color1;
     std::vector<double> color2;
+    std::vector<double> color3;
     std::vector<RGBFixtureDMX> fixtures;
+};
+
+class SimpleHighPassFilter {
+public:
+    SimpleHighPassFilter(double alpha) : lowPassFilter(alpha), initialized(false), previousInput(0.0) {}
+
+    double filter(double value) {
+        if (!initialized) {
+            previousInput = value;
+            initialized = true;
+            lowPassFilter.filter(value);
+            return 0.0; // No high-pass output for the first value
+        }
+        
+        double lowPassOutput = lowPassFilter.filter(value);
+        double highPassOutput = value - lowPassOutput;
+        previousInput = value;
+        return highPassOutput;
+    }
+
+    void reset() {
+        lowPassFilter.reset();
+        initialized = false;
+        previousInput = 0.0;
+    }
+
+    bool isInitialized() const {
+        return initialized;
+    }
+
+    double getPreviousInput() const {
+        return previousInput;
+    }
+
+    double getLowPassOutput() const {
+        return lowPassFilter.getFilteredValue();
+    }
+
+private:
+    SimpleExponentialFilter lowPassFilter;
+    bool initialized;
+    double previousInput;
 };
 
 #endif // FILTERS_H
