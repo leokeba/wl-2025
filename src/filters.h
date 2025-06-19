@@ -382,12 +382,22 @@ public:
                 fixtureSine = sin(patternPosition);
             } else {
                 // Compressed sine waves with gaps when sineWidth < 1.0
+                // Align gaps with the lowest points (troughs) of the sine wave
                 double activeWidth = 2.0 * PI * sineWidth;
-                if (patternPosition <= activeWidth) {
-                    // Within the active sine region
-                    fixtureSine = sin(patternPosition / sineWidth);
+                
+                // Shift pattern so gaps occur at sine wave troughs (3π/2 position)
+                double shiftedPosition = patternPosition + PI / 2.0;
+                if (shiftedPosition >= 2.0 * PI) {
+                    shiftedPosition -= 2.0 * PI;
+                }
+                
+                if (shiftedPosition <= activeWidth) {
+                    // Within the active sine region - compress the sine wave
+                    double compressedPosition = shiftedPosition * (2.0 * PI / activeWidth);
+                    // Shift back to original phase
+                    fixtureSine = sin(compressedPosition - PI / 2.0);
                 } else {
-                    // In the gap region - use lowest value
+                    // In the gap region - align gap at the lowest point
                     fixtureSine = -1.0;
                 }
             }
